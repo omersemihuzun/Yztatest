@@ -11,7 +11,7 @@
 | Ad | Görev |
 |------|-------|
 | **Ömer Semih Uzun** | Backend, AI Pipeline, Knowledge Graph, Chrome Extension |
-| **[Takım Arkadaşı 1]** | [Görevi] |
+| **Bahar Karakaş** | Scrum Master, Sprint Takibi, Dokümantasyon, Demo Veri & Frontend Destek |
 | **[Takım Arkadaşı 2]** | [Görevi] |
 
 ---
