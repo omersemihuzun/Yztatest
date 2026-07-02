@@ -2,7 +2,7 @@
 
 ### **`LearnSphere AI`**
 
-> **"YouTube izle, Gemini'ye sor — sistem geri kalanını halleder."**
+> **Otonom Öğrenme Hafızası ve Zihin Haritası Asistanı**
 
 ---
 
@@ -10,9 +10,11 @@
 
 | Ad | Görev |
 |------|-------|
-| **Ömer Semih Uzun** | Backend, AI Pipeline, Knowledge Graph, Chrome Extension |
-| **Bahar Karakaş** | Scrum Master, Sprint Takibi, Dokümantasyon, Demo Veri & Frontend Destek |
-| **[Takım Arkadaşı 2]** | [Görevi] |
+| **Ömer Semih Uzun** | Product Owner / Developer |
+| **Bahar Karakaş** | Scrum Master / Developer |
+| **Gülistan Ergün** | Developer |
+| **Mevlüt Uçar** | Developer |
+| **Sude Tuğlu** | Developer |
 
 ---
 
@@ -20,7 +22,7 @@
 
 **LearnSphere AI**, kullanıcının web tarayıcısındaki öğrenme aktivitelerini otonom olarak izleyip, içinden teknik kavramları çıkaran ve bunları interaktif bir **Bilgi Grafiği (Knowledge Graph)** olarak görselleştiren yapay zeka destekli bir "İkinci Beyin" uygulamasıdır. 
 
-Kullanıcılar normal şekilde YouTube videoları izlerken veya Gemini/ChatGPT gibi yapay zeka araçlarıyla araştırma yaparken, Chrome eklentimiz arka planda sessizce çalışarak bu eğitimsel içerikleri yakalar. Toplanan veriler, **Gemini 2.0 Flash** modeli ile analiz edilir ve öğrenilen konular (örn: Python, Docker, Pandas) arasındaki ilişkiler **Neo4j** graf veritabanında haritalandırılır. Aynı zamanda metinler vektörleştirilerek **Qdrant**'a kaydedilir. Kullanıcılar, oluşturulan bu etkileşimli zihin haritası üzerinde gezinebilir ve "İkinci Beyin" özelliği sayesinde sadece kendi öğrendikleri bağlamlar üzerinden yapay zekaya sorular sorarak (RAG Chat) bilgilerini tazeleyebilirler.
+Özellikle yazılımcılar, öğrenciler ve kendi kendine öğrenen bireyler için geliştirilen bu sistem; YouTube, Gemini ve ChatGPT gibi platformlardaki araştırma süreçlerini arka planda sessizce dinler. Öğrenilen konuları ve aralarındaki ilişkileri tespit ederek dinamik bir zihin haritası oluşturur. Böylece kullanıcılar not alma zahmetine girmeden kendi öğrendikleri bağlamlar üzerinden, yapay zekaya diledikleri zaman soru sorarak (RAG Chat) bilgilerini tazeleyebilirler.
 
 <details>
 <summary><strong>Ürün Özellikleri</strong></summary>
@@ -28,24 +30,19 @@ Kullanıcılar normal şekilde YouTube videoları izlerken veya Gemini/ChatGPT g
 ---
 
 ### 1. Otonom Veri Toplama
-- **Chrome Extension:** YouTube, Gemini ve ChatGPT sekmelerinde çalışır.
-- **Sessiz Çalışma:** Kullanıcının hiçbir butona basmasına gerek kalmadan, sadece izleyerek veya sorarak veriyi yakalar.
-- **Veri Temizleme:** Gereksiz UI metinlerini ve PII (kişisel tanımlanabilir bilgi) verilerini filtreler.
+- Chrome Extension vasıtasıyla YouTube, Gemini ve ChatGPT sekmelerinde kullanıcının izlediği eğitimsel içerikleri ve sorduğu soruları otomatik olarak yakalar.
 
 ### 2. AI Destekli Kavram Çıkarımı
-- Gemini 2.0 Flash modeli kullanılarak ham sohbet/video verilerinden konu, kategori ve zorluk derecesi çıkarılır.
-- Eğitimsel olmayan "gürültü" niteliğindeki sohbetler sistem tarafından otomatik reddedilir.
+- Elde edilen veriler gelişmiş dil modelleriyle analiz edilerek konu, kategori ve zorluk dereceleri çıkarılır. Eğitimsel olmayan veriler elenir.
 
 ### 3. Bilgi Grafiği (Knowledge Graph) & Zihin Haritası
-- Neo4j tabanlı ağ yapısı ile öğrenilen her şey birbiriyle ilişkilendirilir.
-- Fizik kurallarıyla çalışan interaktif **Living Mind Tree** arayüzünde öğrenme ağı görselleştirilir.
+- Öğrenilen kavramlar arasındaki ilişkiler ağ yapısında (Graph DB) saklanır ve fizik kurallarıyla çalışan interaktif **Living Mind Tree** arayüzünde görselleştirilir.
 
 ### 4. İkinci Beyin (RAG Sohbet)
-- Qdrant vektör veritabanında saklanan veriler üzerinden semantik arama yapılır.
-- Kullanıcı bir soru sorduğunda, sistem tüm interneti değil **yalnızca kullanıcının kendi öğrendiği kaynakları** referans alarak cevap verir.
+- Vektör veritabanında saklanan kişisel bilgiler üzerinden semantik arama yapılarak, kullanıcının doğrudan kendi veritabanındaki bilgilerle sohbet etmesine olanak tanınır.
 
 ### 5. Kaynak Yönetimi
-- Sol paneldeki kaynak listesi üzerinden istenmeyen veriler silinebilir. Silinen veri hem grafikten hem de vektör hafızadan kaldırılır.
+- Kullanıcılar kendi bilgi ağındaki istenmeyen kaynakları kontrol paneli üzerinden silebilir ve süzebilir.
 
 ---
 </details>
@@ -56,16 +53,16 @@ Kullanıcılar normal şekilde YouTube videoları izlerken veya Gemini/ChatGPT g
 ---
 
 ### Kendi Kendine Öğrenenler (Self-learners)
-- Farklı kaynaklardan (video, makale, yapay zeka) edindikleri bilgileri tek bir yerde birleştirmek isteyenler.
+- Farklı kaynaklardan (video, makale, yapay zeka) edindikleri bilgileri tek bir yerde birleştirmek ve takip etmek isteyenler.
 
 ### Yazılım Geliştiriciler ve Mühendisler
-- Yeni teknolojileri, dilleri veya kütüphaneleri öğrenirken öğrendikleri kavramları birbiriyle ilişkilendirmek isteyen profesyoneller.
+- Yeni teknolojileri, dilleri veya kütüphaneleri öğrenirken kavramları birbiriyle ilişkilendirip daha büyük bir yapı görmek isteyen profesyoneller.
 
 ### Öğrenciler ve Akademisyenler
-- Araştırma yaparken karşılaştıkları kaynakları ve çıkardıkları notları görsel bir ağ (mind map) üzerinde görüp daha kalıcı öğrenme hedefleyenler.
+- Araştırma süreçlerini otomatikleştirip, not almak yerine verilerini görsel bir ağ (mind map) üzerinde görüp daha kalıcı bir öğrenme hedefleyenler.
 
 ### Kişisel Verimlilik (Productivity) Odaklılar
-- Notion, Obsidian gibi uygulamalara manuel not girmek yerine, sürecin tamamen otonom çalışmasını isteyen kullanıcılar.
+- Klasik not tutma uygulamalarının manuel yükünden kurtulup, sürecin otonom çalışmasını isteyen yenilikçi kullanıcılar.
 
 ---
 </details>
@@ -84,86 +81,12 @@ Kullanıcılar normal şekilde YouTube videoları izlerken veya Gemini/ChatGPT g
 ---
 
 ### Sprint Notları
-**Sprint 1** sürecinde projenin temel altyapısı (MVP) başarılı bir şekilde kurulmuştur. Hedeflenen özellikler uçtan uca çalışır hale getirilmiştir:
-- **FastAPI** backend ayağa kaldırıldı ve veri işleme (ingest) endpointleri yazıldı.
-- **Chrome Extension** geliştirildi. ChatGPT, Gemini ve YouTube üzerinden başarılı bir şekilde otomatik veri çekimi sağlandı.
-- **Neo4j** ve **Qdrant** veritabanı entegrasyonları docker üzerinden yapılandırıldı. Gemini AI modeli bağlanarak başarılı şekilde "Kavram Çıkarımı" test edildi.
-- **React** frontend ile uçuşan interaktif zihin haritası (Living Mind Tree) arayüzü kodlandı.
-- Vektör tabanlı **İkinci Beyin (RAG Chat)** sistemi entegre edilip çalıştırıldı.
+**Sprint 1** süreci için product backlog belirlenmiş ve ilk gereksinimlerin analizi yapılmıştır.
+- Takım üyelerinin görev tanımları ve çalışma süreçleri netleştirildi.
+- Projenin temel mimarisi, kullanılacak veritabanları (Graph ve Vector DB) ve teknoloji yığını tasarlandı.
+- Miro board üzerinden ilk sprintin planlaması yapılarak task dağılımları tamamlandı.
 
-### Proje Yönetimi
-- Sprint board'umuz Miro üzerinde oluşturuldu ve product backlog item'ları belirlendi. 
-- İlk sprint task'leri atanarak MVP gereksinimleri tamamlandı.
-
-### Ekran Görüntüleri
-*(Sprint 1 ekran görüntüleri eklenecek...)*
-- `Ana Sayfa Zihin Haritası`
-- `Chrome Eklentisi Veri Toplama Anı`
-- `İkinci Beyin Sohbet Ekranı`
+*(Sprint tamamlandığında ekran görüntüleri ve geliştirme detayları eklenecektir.)*
 
 ---
 </details>
-
-<br>
-
-> **Not:** Aşağıdaki bölüm geliştiriciler için projenin teknik kurulumunu ve mimarisini içermektedir.
-
----
-
-## 🏗️ Teknik Mimari
-
-```
-Chrome Extension  →  FastAPI Backend  →  Neo4j (Graph DB)
-     (Veri)              (Zeka)              (İlişkiler)
-                            ↓
-                     Gemini 2.0 Flash   →  Qdrant (Vector DB)
-                     (Kavram Çıkarımı)       (RAG Chat)
-                            ↓
-                     React Frontend
-                     (Living Mind Tree)
-```
-
-## 🚀 Kurulum
-
-### Gereksinimler
-- Python 3.11+
-- Node.js 18+
-- Docker & Docker Compose
-- Google Gemini API Key ([buradan al](https://aistudio.google.com/app/apikey))
-
-### 1. Repo'yu klonla
-```bash
-git clone https://github.com/omersemihuzun/Yztatest.git
-cd Yztatest
-```
-
-### 2. Veritabanlarını başlat (Docker)
-```bash
-cd backend
-docker-compose up -d
-```
-
-### 3. Backend kurulumu
-```bash
-# .env dosyasını oluştur
-cp .env.example .env
-# .env dosyasını aç, GOOGLE_API_KEY'i kendi API key'inle değiştir
-
-# Bağımlılıkları yükle
-pip install -r requirements.txt
-
-# Backend'i başlat
-uvicorn app.main:app --reload --port 8080
-```
-
-### 4. Frontend kurulumu
-```bash
-cd ../frontend
-npm install
-npm run dev
-```
-
-### 5. Chrome Extension kurulumu
-1. Chrome'da `chrome://extensions/` adresine git
-2. "Geliştirici modu"nu aç (sağ üst)
-3. "Paketlenmemiş öğe yükle" → `extension/` klasörünü seç
