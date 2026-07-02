@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "LearnSphere AI - Otonom Öğrenme Asistanı",
+  "version": "1.0.0",
+  "description": "ChatGPT ve Gemini konuşmalarını otonom olarak izleyip LearnSphere backend'ine gönderir.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "*://chatgpt.com/*",
+    "*://gemini.google.com/*",
+    "*://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://chatgpt.com/*",
+        "*://gemini.google.com/*"
+      ],
+      "js": [
+        "utils/pii_filter.js",
+        "config.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.youtube.com/*"],
+      "js": [
+        "utils/pii_filter.js",
+        "config.js",
+        "youtube.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

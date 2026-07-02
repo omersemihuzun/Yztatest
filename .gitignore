@@ -1,0 +1,58 @@
+# ============================================================
+# LearnSphere AI — .gitignore
+# ============================================================
+
+# ---- Ortam Değişkenleri (GİZLİ! Asla commit etme) ----
+.env
+.env.local
+.env.production
+backend/.env
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+venv/
+env/
+.venv/
+*.pyc
+
+# ---- Node.js / Frontend ----
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.npm
+*.log
+npm-debug.log*
+
+# ---- IDE & Editörler ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- Test & Geçici Dosyalar ----
+backend/test_models.py
+backend/backfill_qdrant.py
+backend/check_status.py
+*.tmp
+*.bak
+
+# ---- Veritabanı Yedekleri ----
+*.db
+*.sqlite
+*.sql
+
+# ---- Log Dosyaları ----
+*.log
+logs/

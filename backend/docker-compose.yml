@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  # --- Neo4j (Knowledge Graph Veritabanı) ---
+  neo4j:
+    image: neo4j:5.18-community
+    container_name: learnsphere_neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Neo4j Browser (Web UI)
+      - "7687:7687"   # Bolt protokolü (uygulama bağlantısı)
+    environment:
+      NEO4J_AUTH: neo4j/learnsphere
+      NEO4J_PLUGINS: '["apoc"]'        # APOC: Graph algoritmaları için
+      NEO4J_dbms_memory_heap_max__size: 512M
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "learnsphere", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Qdrant (Vektör Veritabanı - Semantic Search için) ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: learnsphere_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  qdrant_data:
