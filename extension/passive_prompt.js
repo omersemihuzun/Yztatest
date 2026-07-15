@@ -9,6 +9,7 @@
   if (window.top !== window.self) return;
 
   // Hafızadan "Kırmızı" (unutulmaya yüz tutmuş) kelimeleri çek
+  //Conflict çözüldü
   chrome.storage.local.get(['redKeywords'], function(result) {
     // Backend tam bağlanana kadar test edebilmeniz için varsayılan kelimeler:
     const redKeywords = result.redKeywords || ["fastapi", "python", "optimizasyon"];
