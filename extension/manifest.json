@@ -10,7 +10,8 @@
   "host_permissions": [
     "*://chatgpt.com/*",
     "*://gemini.google.com/*",
-    "*://www.youtube.com/*"
+    "*://www.youtube.com/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js",
@@ -30,11 +31,22 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://www.youtube.com/*"],
+      "matches": [
+        "*://www.youtube.com/*"
+      ],
       "js": [
         "utils/pii_filter.js",
         "config.js",
         "youtube.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "passive_prompt.js"
       ],
       "run_at": "document_idle"
     }
