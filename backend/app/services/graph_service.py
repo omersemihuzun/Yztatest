@@ -510,20 +510,17 @@ class GraphService:
             record = await result.single()
             return record["updated_count"] if record else 0
 
-    async def get_topic_clusters(self) -> dict:
+    async def _fetch_all_concepts_with_dynamic_p(self) -> list[dict]:
         """
-        Kavramları topic bazında kümeler. Her kümenin:
-        - Üye listesi (kavram adı + FSRS metrikleri)
-        - Ortalama hatırlama oranı (avg_retrievability)
-        - Sağlık durumu (strong/warning/critical)
-        döndürülür. Harita büyüdüğünde okunabilirlik için frontend kümeleme yapabilir.
+        Tüm Concept'leri (topic filtresi olmadan) dinamik olarak hesaplanmış
+        güncel fsrs_p (hatırlama olasılığı) değeriyle birlikte döndürür.
+        get_topic_clusters ve get_learning_path arasında paylaşılan çekirdek.
         """
         from datetime import datetime, timezone
 
         async with self.neo4j.session() as session:
             result = await session.run("""
                 MATCH (c:Concept)
-                WHERE c.topic IS NOT NULL
                 RETURN c.name        AS name,
                        c.topic       AS topic,
                        c.fsrs_p      AS fsrs_p,
@@ -534,13 +531,8 @@ class GraphService:
             """)
             records = await result.data()
 
-        if not records:
-            return {"clusters": [], "total_clusters": 0}
-
-        # Dinamik p hesaplaması (get_graph_data ile tutarlı)
         now = datetime.now(timezone.utc)
-        cluster_map = {}  # topic -> list[member]
-
+        concepts = []
         for r in records:
             p = r.get("fsrs_p")
             stability = r.get("stability")
@@ -556,10 +548,46 @@ class GraphService:
                 except Exception:
                     pass
 
+            concepts.append({
+                "name": r["name"],
+                "topic": r["topic"],
+                "fsrs_p": round(p, 4) if isinstance(p, (int, float)) else None,
+                "difficulty": r["difficulty"],
+            })
+        return concepts
+
+    @staticmethod
+    def _classify_health(p) -> str:
+        """FSRS hatırlama olasılığını sağlık durumuna sınıflar: strong/warning/critical/unknown."""
+        if not isinstance(p, (int, float)):
+            return "unknown"
+        if p >= 0.7:
+            return "strong"
+        if p >= 0.4:
+            return "warning"
+        return "critical"
+
+    async def get_topic_clusters(self) -> dict:
+        """
+        Kavramları topic bazında kümeler. Her kümenin:
+        - Üye listesi (kavram adı + FSRS metrikleri)
+        - Ortalama hatırlama oranı (avg_retrievability)
+        - Sağlık durumu (strong/warning/critical)
+        döndürülür. Harita büyüdüğünde okunabilirlik için frontend kümeleme yapabilir.
+        """
+        all_concepts = await self._fetch_all_concepts_with_dynamic_p()
+        records = [c for c in all_concepts if c["topic"]]
+
+        if not records:
+            return {"clusters": [], "total_clusters": 0}
+
+        cluster_map = {}  # topic -> list[member]
+
+        for r in records:
             topic = (r["topic"] or "Genel").strip()
             member = {
                 "name": r["name"],
-                "fsrs_p": round(p, 4) if isinstance(p, (int, float)) else None,
+                "fsrs_p": r["fsrs_p"],
                 "difficulty": r["difficulty"],
             }
 
@@ -572,15 +600,7 @@ class GraphService:
         for topic, members in cluster_map.items():
             p_values = [m["fsrs_p"] for m in members if m["fsrs_p"] is not None]
             avg_p = round(sum(p_values) / len(p_values), 4) if p_values else None
-
-            health = "unknown"
-            if avg_p is not None:
-                if avg_p >= 0.7:
-                    health = "strong"
-                elif avg_p >= 0.4:
-                    health = "warning"
-                else:
-                    health = "critical"
+            health = self._classify_health(avg_p)
 
             clusters.append({
                 "label": topic,
@@ -605,9 +625,7 @@ class GraphService:
         if general_members:
             p_values = [m["fsrs_p"] for m in general_members if m["fsrs_p"] is not None]
             avg_p = round(sum(p_values) / len(p_values), 4) if p_values else None
-            health = "unknown"
-            if avg_p is not None:
-                health = "strong" if avg_p >= 0.7 else ("warning" if avg_p >= 0.4 else "critical")
+            health = self._classify_health(avg_p)
             final_clusters.append({
                 "label": "Genel",
                 "members": general_members,
@@ -618,12 +636,95 @@ class GraphService:
 
         return {"clusters": final_clusters, "total_clusters": len(final_clusters)}
 
-async def import_graph_data(self, graph_data: dict):
+    async def get_learning_path(self, target: str, max_hops: int = 6) -> dict | None:
+        """
+        Hedef kavrama, mevcut sağlam (fsrs_p yüksek) kavramlardan en kısa
+        RELATED_TO rotasını (Neo4j shortestPath) bulur ve rota üzerindeki
+        zayıf (sağlık durumu 'strong' olmayan) duraklari isaretler.
+        Hedef grafikte yoksa None döner (router 404'e çevirir).
+        """
+        all_concepts = await self._fetch_all_concepts_with_dynamic_p()
+        concept_by_name = {c["name"]: c for c in all_concepts}
+
+        if target not in concept_by_name:
+            return None
+
+        STRONG_THRESHOLD = 0.7
+        MAX_SOURCE_CANDIDATES = 20  # shortestPath her aday icin ayri calisiyor; graf buyuklugunden bagimsiz sabit maliyet icin sinirla
+
+        source_candidates = sorted(
+            (c for c in all_concepts if c["name"] != target and c["fsrs_p"] is not None and c["fsrs_p"] >= STRONG_THRESHOLD),
+            key=lambda c: c["fsrs_p"],
+            reverse=True,
+        )[:MAX_SOURCE_CANDIDATES]
+        source_candidates = [c["name"] for c in source_candidates]
+
+        if not source_candidates:
+            # Soğuk başlangıç: hiçbir kavram 'strong' değilse en yüksek p'ye sahip olanı fallback kaynak yap
+            others = [c for c in all_concepts if c["name"] != target]
+            if not others:
+                return {
+                    "found": False,
+                    "target": target,
+                    "reason": "Henuz baglantili baska kavram yok.",
+                }
+            best = max(others, key=lambda c: c["fsrs_p"] if c["fsrs_p"] is not None else -1)
+            source_candidates = [best["name"]]
+
+        hops = max(1, min(10, int(max_hops)))
+
+        async with self.neo4j.session() as session:
+            result = await session.run(
+                f"""
+                MATCH (target:Concept {{name: $target}})
+                MATCH (source:Concept) WHERE source.name IN $source_names
+                MATCH p = shortestPath((source)-[:RELATED_TO*1..{hops}]-(target))
+                RETURN [n IN nodes(p) | n.name] AS names, length(p) AS len, source.name AS source_name
+                ORDER BY len ASC
+                LIMIT 1
+                """,
+                target=target,
+                source_names=source_candidates,
+            )
+            record = await result.single()
+
+        if record is None:
+            return {
+                "found": False,
+                "target": target,
+                "reason": "Hedefe mevcut bilgiden ulasan bir yol yok.",
+            }
+
+        path = []
+        weak_stops = []
+        for name in record["names"]:
+            concept = concept_by_name.get(name, {"name": name, "topic": None, "fsrs_p": None, "difficulty": None})
+            health = self._classify_health(concept.get("fsrs_p"))
+            path.append({
+                "name": name,
+                "topic": concept.get("topic"),
+                "difficulty": concept.get("difficulty"),
+                "fsrs_p": concept.get("fsrs_p"),
+                "health": health,
+            })
+            if health != "strong":
+                weak_stops.append(name)
+
+        return {
+            "found": True,
+            "target": target,
+            "source": record["source_name"],
+            "hops": record["len"],
+            "path": path,
+            "weak_stops": weak_stops,
+        }
+
+    async def import_graph_data(self, graph_data: dict):
         """Dışarıdan gelen JSON verisini Neo4j'ye MERGE ile ekler."""
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
 
-        async with self.neo4j_driver.session() as session:
+        async with self.neo4j.session() as session:
             # 1. Düğümleri güvenli bir şekilde ekle
             for node in nodes:
                 await session.run("""

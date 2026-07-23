@@ -14,6 +14,10 @@ function App() {
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0);
   const [focusCluster, setFocusCluster] = useState(null);
   const [isClusteringMode, setIsClusteringMode] = useState(false); // Varsayılan olarak klasik açık görünüm
+  const [learningPath, setLearningPath] = useState(null); // Öğrenme yolu (prerequisite path) sonucu
+  const [goalResult, setGoalResult] = useState(null); // Serbest metin öğrenme hedefi (haritada olmayan) sonucu
+  const [goalInputOpen, setGoalInputOpen] = useState(false);
+  const [goalInputValue, setGoalInputValue] = useState('');
 
   // Dosya seçici için referans
   const fileInputRef = useRef(null);
@@ -51,6 +55,12 @@ function App() {
         next.add(cid);
         return next;
       });
+      
+      const parentClusterNode = fullGraphData.nodes.find(n => n.id === cid);
+      if (parentClusterNode) {
+          setFocusCluster(parentClusterNode);
+      }
+
       // Biraz bekle graf render olsun, sonra seç
       setTimeout(() => setSelectedNode(foundNode), 100);
     }
@@ -127,6 +137,137 @@ function App() {
   };
 
   const clusterNodesRef = useRef({});
+
+  // ---- YENİ: ÖĞRENME YOLU (PREREQUISITE PATH) ----
+
+  // Verilen kavram isimlerinin ait olduğu tüm ata kümeleri (kapalıysa) açar, böylece
+  // o kavramlar haritada görünür olur. handleShowPath ve handleResolveGoal tarafından
+  // paylaşılan ortak mantık.
+  const expandAncestorsFor = (names) => {
+    setExpandedClusters(prev => {
+      const next = new Set(prev);
+      names.forEach(name => {
+        let currentId = name;
+        const visited = new Set();
+        while (currentId) {
+          if (visited.has(currentId)) break;
+          visited.add(currentId);
+          const n = fullGraphData.nodes.find(nd => nd.id === currentId);
+          if (n && n.cluster_id && n.cluster_id !== 'Genel' && n.cluster_id !== currentId) {
+            next.add(n.cluster_id);
+            currentId = n.cluster_id;
+          } else {
+            break;
+          }
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleShowPath = async (targetLabel) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:8080/api/v1/learning-path?target=${encodeURIComponent(targetLabel)}`);
+      if (!response.ok) {
+        setLearningPath({ target: targetLabel, found: false, reason: 'Kavram bulunamadı.' });
+        return;
+      }
+      const result = await response.json();
+      setLearningPath(result);
+
+      if (result.found) {
+        expandAncestorsFor(result.path.map(step => step.name));
+      }
+    } catch (error) {
+      console.error("Ogrenme yolu yuklenemedi:", error);
+      setLearningPath({ target: targetLabel, found: false, reason: 'Sunucuya ulaşılamadı.' });
+    }
+  };
+
+  const handleClearPath = () => setLearningPath(null);
+  const handleClearGoal = () => setGoalResult(null);
+
+  // Serbest metin öğrenme hedefi (harita üzerinde henüz olmayabilecek bir kavram).
+  const handleResolveGoal = async (goalText) => {
+    // Yeni bir hedef LLM'e gidiyorsa birkaç saniye sürebilir; panel hemen açılıp
+    // beklerken kullanıcıya geri bildirim versin (önbellekteki hedefler zaten hızlı döner).
+    setLearningPath(null);
+    setGoalResult({
+      target: goalText, in_graph: false, prerequisites: [], weak_prerequisites: [],
+      message: 'Aranıyor... (haritanda olmayan yeni bir konuysa birkaç saniye sürebilir)',
+      loading: true,
+    });
+    setSelectedNode({ id: goalText, label: goalText, isVirtual: true });
+
+    try {
+      const response = await fetch('http://127.0.0.1:8080/api/v1/learning-goal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal: goalText }),
+      });
+      const data = await response.json();
+
+      if (data.in_graph) {
+        // Hedef zaten haritada var: mevcut öğrenme yolu akışının aynısı (bkz. handleShowPath)
+        setGoalResult(null);
+        setLearningPath(data);
+        if (data.found) {
+          expandAncestorsFor(data.path.map(step => step.name));
+        }
+        const node = fullGraphData.nodes.find(n => n.id === data.target);
+        setSelectedNode(node || { id: data.target, label: data.target, isVirtual: true });
+      } else {
+        setLearningPath(null);
+        setGoalResult(data);
+        setSelectedNode({ id: data.target, label: data.target, isVirtual: true });
+      }
+    } catch (error) {
+      console.error("Hedef cozumlenemedi:", error);
+      setLearningPath(null);
+      setGoalResult({
+        target: goalText, in_graph: false, prerequisites: [], weak_prerequisites: [],
+        message: 'Sunucuya ulaşılamadı.',
+      });
+      setSelectedNode({ id: goalText, label: goalText, isVirtual: true });
+    }
+  };
+
+  // Kullanıcı rota/hedef dışında, alakasız yeni bir düğüm seçerse eski vurgu haritada
+  // "asılı" kalmasın diye otomatik temizlenir. Rota/hedef üzerindeki bir durağa tıklanırsa
+  // (gezinme amacıyla) görünür kalmaya devam eder.
+  useEffect(() => {
+    if (!selectedNode) return;
+    if (learningPath) {
+      const isTarget = learningPath.target === selectedNode.label;
+      const isOnPath = learningPath.found && learningPath.path.some(step => step.name === selectedNode.label);
+      if (!isTarget && !isOnPath) setLearningPath(null);
+    }
+    if (goalResult) {
+      const isTarget = goalResult.target === selectedNode.label;
+      const isPrereq = goalResult.prerequisites.some(p => p.name === selectedNode.label);
+      if (!isTarget && !isPrereq) setGoalResult(null);
+    }
+  }, [selectedNode]);
+
+  const highlightedPath = React.useMemo(() => {
+    if (!learningPath || !learningPath.found) return null;
+    const nodeIds = new Set(learningPath.path.map(s => s.name));
+    const weakIds = new Set(learningPath.weak_stops);
+    const edgeKeys = new Set();
+    const names = learningPath.path.map(s => s.name);
+    for (let i = 0; i < names.length - 1; i++) {
+      const pair = [names[i], names[i + 1]].sort();
+      edgeKeys.add(`${pair[0]}::${pair[1]}`);
+    }
+    return { nodeIds, weakIds, edgeKeys };
+  }, [learningPath]);
+
+  const goalHighlight = React.useMemo(() => {
+    if (!goalResult) return null;
+    const nodeIds = new Set(goalResult.prerequisites.map(p => p.name));
+    const weakIds = new Set(goalResult.weak_prerequisites);
+    return { nodeIds, weakIds, edgeKeys: new Set() };
+  }, [goalResult]);
 
   // Dinamik Küme Görünümü
   useEffect(() => {
@@ -434,7 +575,38 @@ function App() {
                 Kümeleri Daralt
               </button>
             )}
+            <button
+              onClick={() => setGoalInputOpen(prev => !prev)}
+              style={{ background: goalInputOpen ? '#10B981' : '#374151', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
+              title="Haritada henüz olmayan bir konu için öğrenme yolu iste">
+              🎯 Yeni Hedef
+            </button>
           </div>
+
+          {goalInputOpen && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!goalInputValue.trim()) return;
+                handleResolveGoal(goalInputValue.trim());
+                setGoalInputValue('');
+                setGoalInputOpen(false);
+              }}
+              style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}
+            >
+              <input
+                type="text"
+                autoFocus
+                value={goalInputValue}
+                onChange={(e) => setGoalInputValue(e.target.value)}
+                placeholder="Ne öğrenmek istiyorsun? (örn. Büyük Dil Modelleri)"
+                style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--cizgi)', background: 'rgba(255,255,255,0.06)', color: 'white', fontSize: '12px' }}
+              />
+              <button type="submit" style={{ background: '#10B981', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                Rota Oluştur
+              </button>
+            </form>
+          )}
 
           <div className="statbar">
             <span className="stat"><b>{stats.total}</b> kavram</span>
@@ -464,6 +636,7 @@ function App() {
               focusCluster={focusCluster}
               isClusteringMode={isClusteringMode}
               selectedNode={selectedNode}
+              highlightedPath={highlightedPath || goalHighlight}
             />
           )}
           {!loading && displayGraph.nodes.length === 0 && (
@@ -482,6 +655,11 @@ function App() {
       <NodeDetailsPanel
         node={selectedNode}
         onClose={() => setSelectedNode(null)}
+        onShowPath={handleShowPath}
+        learningPath={learningPath}
+        onClearPath={handleClearPath}
+        goalResult={goalResult}
+        onClearGoal={handleClearGoal}
       />
     </div>
   );
