@@ -34,10 +34,23 @@ Sana bir kullanıcı-LLM konuşması veya izlenen video/sayfa içeriği verecekl
 
 KURALLAR:
 - Sadece gerçekten teknik, eğitimsel veya üretkenlik (Miro, Trello, Notion vb.) ile ilgili araç ve kavramları çıkar.
-- "Merhaba", "nasılsın", "teşekkürler" gibi günlük konuşmalar veya tamamen ilgisiz içeriklerde is_educational=false döndür.
+- "Merhaba", "nasılsın", "teşekkurler" gibi günlük konuşmalar veya tamamen ilgisiz içeriklerde is_educational=false döndür.
 - Kavram adları kısa ve kesin olmalı (örn: "Pandas", "Miro", "Docker", "Agile").
 - ÇOK ÖNEMLİ (BAĞLANTILAR): Eğer bir alt dal veya kütüphaneden bahsediliyorsa (Örn: Pandas, Numpy), `related_to` listesine KESİNLİKLE onun ana veya üst teknolojisini (Örn: Python) eklemelisin! Hiyerarşik ve mantıksal ağlar (Node-Edge) kuruyorsun.
 - Türkçe konuşmalardan da orijinal (genellikle İngilizce) araç/kavram adları çıkar (Örn: "python'da dizi" -> "Array").
+
+- Türkçe konuşmalardan da orijinal (genellikle İngilizce) araç/kavram adları çıkar (Örn: "python'da dizi" -> "Array").
+
+ENTITY RESOLUTION (ZAMANA DAYALI KAVRAM BİRLEŞTİRME) KURALLARI:
+- Sana "Mevcut Kavram Listesi" adında, sistemde zaten var olan kavramların isimlerini vereceğiz. Bu liste oluşturulma zamanına (en eski en başta) göre sıralıdır.
+- ÇOK ÖNEMLİ: Eğer metinden çıkardığın yeni kavram, bu listedeki bir kavramla AYNI anlama geliyorsa (farklı dilde olsa bile, örn: "Machine Learning" vs "Makine Öğrenmesi"), KESİNLİKLE listede gördüğün o mevcut ismi kullan! Asla yeni (duplicate) bir isim üretme. Kullanıcının geçmiş tercihine saygı duy.
+- Eğer listede anlamca eşleşen bir kavram yoksa, o zaman yeni kavramı orijinal ismiyle oluştur.
+
+TOPIC (KÜMELEME) KURALLARI:
+- topic alanı, içeriğin diline uygun olmalıdır.
+- ÇOK ÖNEMLİ (KÜME BİRLEŞTİRME): Eğer `existing_topics` listesinde aynı anlama gelen (farklı dillerde olsa bile) bir konu başlığı zaten varsa, yeni bir tane oluşturma! Birebir o mevcut konuyu kullan.
+- Eğer mevcut listede anlamca uyuşan hiçbir konu yoksa, içeriğin diliyle yeni bir konu başlığı oluştur.
+- Topic geniş bir üst kategori olmalı, çok spesifik olmamalı. Örneğin "Derin Öğrenme Kütüphaneleri" yerine "Yapay Zeka" kullan.
 
 Yanıtını SADECE aşağıdaki JSON formatında ver, başka hiçbir şey yazma:
 {{
@@ -46,7 +59,7 @@ Yanıtını SADECE aşağıdaki JSON formatında ver, başka hiçbir şey yazma:
       "name": "kavram_adı",
       "topic": "üst_konu",
       "difficulty": "baslangic|orta|ileri",
-      "related_to": ["ana_teknoloji", "ilişkili_kavram"]
+      "related_to": ["ana_teknoloji", "iliskili_kavram"]
     }}
   ],
   "main_topic": "ana_konu",
@@ -55,7 +68,7 @@ Yanıtını SADECE aşağıdaki JSON formatında ver, başka hiçbir şey yazma:
     ),
     (
         "human",
-        "Platform: {platform}\n\nKullanıcı Sorusu/Konusu:\n{question}\n\nİçerik (ilk 800 karakter):\n{answer}",
+        "Platform: {platform}\n\nMevcut Topic Listesi (varsa bunlardan seç): {existing_topics}\n\nMevcut Kavram Listesi (Eşleşen varsa KESİNLİKLE bunları kullan): {existing_concepts}\n\nKullanıcı Sorusu/Konusu:\n{question}\n\nİçerik (ilk 800 karakter):\n{answer}",
     ),
 ])
 
@@ -80,16 +93,25 @@ class ConceptExtractor:
         platform: str,
         question: str,
         answer: str,
+        existing_topics: list[str] = None,
+        existing_concepts: list[str] = None,
     ) -> Optional[ExtractionResult]:
         """
         Bir soru-cevap çiftinden kavramları çıkarır.
         Eğitimsel değilse None döner.
+        existing_topics: Neo4j'deki mevcut topic listesi. Gemini önce bunlardan seçer.
+        existing_concepts: Neo4j'deki mevcut kavramlar. Duplikasyonları önlemek için kullanılır.
         """
         try:
+            topics_str = ", ".join(existing_topics) if existing_topics else "Henüz topic yok, yeni oluştur"
+            concepts_str = ", ".join(existing_concepts) if existing_concepts else "Henüz kavram yok"
+            
             result: dict = await self.chain.ainvoke({
                 "platform": platform,
                 "question": question[:500],   # Token tasarrufu
-                "answer": answer[:800],
+                "answer": answer[:800],       # LLM maliyeti ve hızı için
+                "existing_topics": topics_str,
+                "existing_concepts": concepts_str,
             })
 
             extraction = ExtractionResult(**result)

@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import { forceCollide } from 'd3-force-3d';
 
 // ---- "Köz" sıcaklık skalası ----
 // Taze bilgi kor gibi sıcak parlar; unutulmaya yüz tutan bilgi küle soğur.
@@ -31,7 +32,7 @@ const RETENTION = {
 };
 
 function styleOf(node) {
-  // p değeri varsa hatırlama skalası; yoksa yaş bazlı köz skalasına düş
+  // Küme düğümü (isCluster) için de aynı renk mantığı geçerli (ortalaması hesaplanıp fsrs_p'ye atandı)
   const p = node.fsrs_p;
   if (typeof p === 'number') {
     if (p >= 0.8) return RETENTION.strong;
@@ -54,15 +55,94 @@ const REDUCED_MOTION =
   typeof window !== 'undefined' &&
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-const MindMap = ({ data, onNodeClick }) => {
+const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteringMode, selectedNode }) => {
   const graphRef = useRef();
   const containerRef = useRef();
   const hasAutoFitted = useRef(false);
 
-  // Veri değişince (filtre vb.) haritayı yeniden çerçevele
+  // Seçili kavramın komşularını hesapla (Context + Focus algoritması için)
+  const selectedNeighbors = useMemo(() => {
+    const set = new Set();
+    if (!selectedNode) return set;
+    set.add(selectedNode.id);
+    
+    (data.edges || []).forEach(edge => {
+      const sId = typeof edge.source === 'object' ? edge.source.id : edge.source;
+      const tId = typeof edge.target === 'object' ? edge.target.id : edge.target;
+      if (sId === selectedNode.id) set.add(tId);
+      if (tId === selectedNode.id) set.add(sId);
+    });
+    return set;
+  }, [data.edges, selectedNode]);
+
+  // Kümeler daraltıldığında kamerayı tüm haritayı görecek şekilde uzaklaştır
   useEffect(() => {
-    hasAutoFitted.current = false;
-  }, [data]);
+    if (zoomToFitTrigger > 0 && graphRef.current) {
+      setTimeout(() => {
+        graphRef.current.zoomToFit(600, 90);
+      }, 150); // Fizik motorunun toparlanması için kısa bir süre bekle
+    }
+  }, [zoomToFitTrigger]);
+
+  // Sidebar'dan bir küme seçildiğinde kamerayı o kümeye odakla
+  useEffect(() => {
+    if (focusCluster && graphRef.current) {
+      setTimeout(() => {
+        const nodes = graphRef.current.graphData().nodes;
+        // Açılan kümedeki kavramları ve kümenin kendisini bul
+        const clusterNodes = nodes.filter(n => (n.cluster_id || 'Genel') === focusCluster.id || n.id === focusCluster.id);
+        
+        // Sadece geçerli koordinatlara (x,y) sahip olanları hesaba kat (Kamera boşluğa uçmasın)
+        const validNodes = clusterNodes.filter(n => Number.isFinite(n.x) && Number.isFinite(n.y));
+        
+        if (validNodes.length > 0) {
+          const avgX = validNodes.reduce((sum, n) => sum + n.x, 0) / validNodes.length;
+          const avgY = validNodes.reduce((sum, n) => sum + n.y, 0) / validNodes.length;
+          // Kümenin tam ortasına orta derecede bir zoom yap
+          graphRef.current.centerAt(avgX, avgY, 800);
+          graphRef.current.zoom(2.5, 1000);
+        }
+      }, 300); // Fizik motorunun kavramları biraz dağıtmasını bekle
+    }
+  }, [focusCluster]);
+
+  // Veri değişince (filtre vb.) otomatik uzaklaşmayı iptal et, 
+  // zoomToFitTrigger (App.jsx'ten gelen prop) bu işi zaten manuel komutlarla yönetiyor.
+
+  // d3-force fizik motoru ayarları: Sadece kümeleme modu açıkken aktif
+  useEffect(() => {
+    if (!graphRef.current) return;
+    const fg = graphRef.current;
+
+    if (isClusteringMode) {
+      // Kümeleme AÇIK: Güçlü itme + çarpışma koruması
+      fg.d3Force('charge').strength((node) => {
+        if (node.isCluster && !node.isExpandedHub) return -800;
+        if (node.isCluster && node.isExpandedHub) return -200;
+        return -80;
+      });
+
+      fg.d3Force('collide', 
+        forceCollide((node) => {
+          if (node.isCluster && !node.isExpandedHub) return 40 + Math.min(node.member_count || 1, 20) * 2;
+          if (node.isCluster && node.isExpandedHub) return 15;
+          return 10;
+        }).iterations(3)
+      );
+
+      fg.d3Force('link')?.distance((link) => {
+        if (link.isHubEdge) return 60;
+        return 40;
+      });
+    } else {
+      // Kümeleme KAPALI: Varsayılan d3 ayarlarına dön
+      fg.d3Force('charge').strength(-30);
+      fg.d3Force('collide', null);
+      fg.d3Force('link')?.distance(30);
+    }
+
+    fg.d3ReheatSimulation();
+  }, [data, isClusteringMode]);
   const [dimensions, setDimensions] = useState({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -91,14 +171,22 @@ const MindMap = ({ data, onNodeClick }) => {
   }, [data]);
 
   const radiusOf = useCallback(
-    (node) => 4 + Math.min(degree[node.id] || 0, 6) * 1.1,
+    (node) => {
+      if (node.isCluster) {
+        if (node.isExpandedHub) return 10; // Açıkken tatlı bir merkez (Hub) boyutu
+        // Küme kapalıyken içindeki eleman sayısına (max 20) göre büyür
+        return 12 + Math.min(node.member_count || 1, 20) * 1.5;
+      }
+      return 4 + Math.min(degree[node.id] || 0, 6) * 1.1;
+    },
     [degree]
   );
 
   const handleNodeClick = useCallback(
     (node) => {
+      // Düğümlere tıklandığında aşırı zoom yapma, sadece ekranın merkezine al
       graphRef.current.centerAt(node.x, node.y, 800);
-      graphRef.current.zoom(5, 1200);
+      
       if (onNodeClick) onNodeClick(node);
     },
     [onNodeClick]
@@ -118,23 +206,60 @@ const MindMap = ({ data, onNodeClick }) => {
         height={dimensions.height}
         nodeLabel="label"
         nodeRelSize={6}
+        cooldownTicks={isClusteringMode ? 150 : 100}
+        warmupTicks={isClusteringMode ? 50 : 0}
         linkColor={(link) => {
-          // Edge soluklaştırma: bağ, iki ucun en ZAYIF hatırlama değerini taşır.
-          // Bilgi bağları zayıfladıkça çizgiler silikleşir/kızarır.
+
+          const sourceCluster = link.source?.cluster_id || 'Genel';
+          const targetCluster = link.target?.cluster_id || 'Genel';
+          const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+          const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+          const isFocusedPath = selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id);
+          const inContext = !isClusteringMode || !focusCluster || 
+                            sourceCluster === focusCluster.id || 
+                            targetCluster === focusCluster.id ||
+                            sourceId === focusCluster.id ||
+                            targetId === focusCluster.id;
+          
+          if (!inContext && !isFocusedPath) {
+            return 'rgba(139, 152, 172, 0.03)'; // Çok silik yap
+          }
+
+          // Çizginin kendi zorluk/sağlamlık rengini hesapla
+          let r = 139, g = 152, b = 172, baseA = 0.14; // Default soğuk renk
           const ps = link.source?.fsrs_p;
           const pt = link.target?.fsrs_p;
+          
           if (typeof ps === 'number' && typeof pt === 'number') {
             const pMin = Math.min(ps, pt);
-            if (pMin < 0.5) return `rgba(255, 107, 107, ${0.10 + pMin * 0.3})`;
-            if (pMin < 0.8) return `rgba(255, 180, 84, ${0.08 + pMin * 0.3})`;
-            return 'rgba(87, 217, 163, 0.3)';
+            if (pMin < 0.5) { r = 255; g = 107; b = 107; baseA = 0.10 + pMin * 0.3; }
+            else if (pMin < 0.8) { r = 255; g = 180; b = 84; baseA = 0.08 + pMin * 0.3; }
+            else { r = 87; g = 217; b = 163; baseA = 0.3; }
+          } else {
+            const warm = isFresh(link.source?.created_at) || isFresh(link.target?.created_at);
+            if (warm) { r = 255; g = 180; b = 84; baseA = 0.35; }
           }
-          // p yoksa yaş bazlı eski davranış
-          const warm =
-            isFresh(link.source?.created_at) || isFresh(link.target?.created_at);
-          return warm ? 'rgba(255, 180, 84, 0.35)' : 'rgba(139, 152, 172, 0.14)';
+
+          // Sadece kümeleme modunda: Seçili (tıklanmış) rotayı çok az belirginleştir (0.55)
+          if (isClusteringMode && isFocusedPath) {
+             baseA = 0.55; 
+          }
+
+          return `rgba(${r}, ${g}, ${b}, ${baseA})`;
         }}
-        linkWidth={1.2}
+        linkWidth={(link) => {
+          // Normal Mod: Arkadaşının orijinal kodu (Sabit 1.2)
+          if (!isClusteringMode) return 1.2;
+
+          // Kümeleme Modu: Seçili (tıklanmış) düğümün bağlarını 'hafif' kalınlaştır (2.0)
+          if (selectedNode) {
+            const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+            const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+            if (sourceId === selectedNode.id || targetId === selectedNode.id) return 2.0; 
+          }
+          return 1.2; // Varsayılan
+        }}
         linkDirectionalParticles={REDUCED_MOTION ? 0 : 1}
         linkDirectionalParticleSpeed={0.004}
         linkDirectionalParticleWidth={2}
@@ -153,6 +278,16 @@ const MindMap = ({ data, onNodeClick }) => {
           const ember = styleOf(node);
           const baseR = radiusOf(node);
 
+          // CONTEXT + FOCUS (Bağlam ve Odak) Modu:
+          let isVisible = true;
+          if (isClusteringMode && focusCluster) {
+            const inContext = (node.cluster_id || 'Genel') === focusCluster.id || node.id === focusCluster.id;
+            const inFocus = selectedNode ? selectedNeighbors.has(node.id) : false;
+            
+            isVisible = inContext || inFocus;
+          }
+          ctx.globalAlpha = isVisible ? 1.0 : 0.15;
+
           // Riskteki kavramlar (p < 0.5) dikkat çekmek için nefes alır;
           // p verisi yoksa eski davranış: taze közler nefes alır.
           let r = baseR;
@@ -162,13 +297,14 @@ const MindMap = ({ data, onNodeClick }) => {
             r = baseR + Math.sin(Date.now() / 600 + (node.index || 0)) * 0.8;
           }
 
-          // Dış ısı halkası (sadece sıcak közlerde)
+          // Dış ısı halkası (glow) - Ekip arkadaşının tasarımına sadık kalındı
+          // Küme düğümleri çok büyük olabildiği için parlama katsayısı 3.2'den 1.8'e düşürüldü
           if (ember.glow !== 'transparent') {
-            const halo = ctx.createRadialGradient(node.x, node.y, r * 0.4, node.x, node.y, r * 3.2);
+            const halo = ctx.createRadialGradient(node.x, node.y, r * 0.4, node.x, node.y, r * 1.8);
             halo.addColorStop(0, ember.glow + (ember.glow.startsWith('rgba') ? '' : '55'));
             halo.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.beginPath();
-            ctx.arc(node.x, node.y, r * 3.2, 0, 2 * Math.PI, false);
+            ctx.arc(node.x, node.y, r * 1.8, 0, 2 * Math.PI, false);
             ctx.fillStyle = halo;
             ctx.fill();
           }
