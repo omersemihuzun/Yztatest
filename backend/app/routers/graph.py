@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.services.graph_service import GraphService
+from app.services.learning_goal_service import LearningGoalService
 from app.db.neo4j_client import get_neo4j_driver
 from app.core.logging import get_logger
 
@@ -15,6 +16,11 @@ async def get_graph_service() -> GraphService:
     neo4j = await get_neo4j_driver()
     qdrant = await get_qdrant_client()
     return GraphService(neo4j_driver=neo4j, qdrant_client=qdrant)
+
+
+async def get_learning_goal_service() -> LearningGoalService:
+    neo4j = await get_neo4j_driver()
+    return LearningGoalService(neo4j_driver=neo4j)
 
 
 @router.get(
@@ -119,3 +125,54 @@ async def get_clusters(
 ):
     """Topic bazlı kavram kümeleri ve her kümenin FSRS sağlık durumu."""
     return await service.get_topic_clusters()
+
+
+@router.get(
+    "/learning-path",
+    summary="Hedef kavrama giden öğrenme yolu",
+    description=(
+        "Mevcut sağlam (fsrs_p yüksek) kavramlardan hedef kavrama en kısa "
+        "RELATED_TO rotasını (Neo4j shortestPath) bulur; rotadaki zayıf "
+        "duraklari isaretler."
+    ),
+)
+async def get_learning_path(
+    target: str,
+    max_hops: int = 6,
+    service: GraphService = Depends(get_graph_service),
+):
+    """target bir sorgu parametresi (?target=...) — kavram isimlerinde '/' olabildiği için path param kullanılmaz."""
+    result = await service.get_learning_path(target, max_hops=max_hops)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Concept '{target}' bulunamadi.")
+    return result
+
+
+class LearningGoalRequest(BaseModel):
+    goal: str
+
+
+@router.post(
+    "/learning-goal",
+    summary="Serbest metin öğrenme hedefi çözümle",
+    description=(
+        "Kullanıcının haritada henüz olmayan bir hedefi (örn. 'Büyük Dil Modelleri (LLM)') "
+        "serbest metinle girmesini sağlar. Hedef zaten haritada varsa mevcut shortestPath "
+        "akışına (LLM'siz) devreder; yoksa LLM ile genel önkoşulları bulur ve kullanıcının "
+        "kendi haritasındaki karşılıklarının sağlık durumunu kontrol eder."
+    ),
+)
+async def resolve_learning_goal(
+    payload: LearningGoalRequest,
+    graph_service: GraphService = Depends(get_graph_service),
+    goal_service: LearningGoalService = Depends(get_learning_goal_service),
+):
+    goal = payload.goal.strip()
+    if not goal:
+        raise HTTPException(status_code=422, detail="goal bos olamaz.")
+
+    resolved = await goal_service.resolve_goal(goal)
+    if resolved["in_graph"]:
+        path = await graph_service.get_learning_path(resolved["target"])
+        return {"in_graph": True, **(path or {"found": False, "target": resolved["target"]})}
+    return resolved

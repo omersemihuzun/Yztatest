@@ -1,9 +1,18 @@
 import React from 'react';
-import { X, Network } from 'lucide-react';
+import { X, Network, Compass } from 'lucide-react';
 
-const NodeDetailsPanel = ({ node, onClose }) => {
+const HEALTH_BADGE_CLASS = {
+  strong: 'badge-baslangic',
+  warning: 'badge-orta',
+  critical: 'badge-ileri',
+};
+
+const NodeDetailsPanel = ({ node, onClose, onShowPath, learningPath, onClearPath, goalResult, onClearGoal }) => {
   if (!node) return null;
   const p = node.fsrs_p ?? 1.0;
+  const canShowPath = !node.isCluster && !node.isVirtual;
+  const pathForThisNode = learningPath && learningPath.target === node.label ? learningPath : null;
+  const isGoalNode = node.isVirtual && goalResult && goalResult.target === node.label;
 
   return (
     <div className={`side-panel glass-panel ${node ? 'open' : ''}`}>
@@ -14,12 +23,108 @@ const NodeDetailsPanel = ({ node, onClose }) => {
         </button>
       </div>
 
+      {canShowPath && (
+        <div className="info-group">
+          {!pathForThisNode ? (
+            <button
+              onClick={() => onShowPath(node.label)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: 'rgba(255,180,84,0.12)', color: 'var(--kor)',
+                border: '1px solid rgba(255,180,84,0.3)', borderRadius: '6px',
+                padding: '6px 12px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+              }}
+            >
+              <Compass size={14} /> Bu Kavrama Giden Yolu Göster
+            </button>
+          ) : (
+            <button
+              onClick={onClearPath}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: 'rgba(255,255,255,0.06)', color: 'var(--sis)',
+                border: '1px solid var(--cizgi)', borderRadius: '6px',
+                padding: '6px 12px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+              }}
+            >
+              <X size={14} /> Yolu Kapat
+            </button>
+          )}
+
+          {pathForThisNode && !pathForThisNode.found && (
+            <p className="text-sm text-muted" style={{ marginTop: '8px' }}>
+              {pathForThisNode.reason}
+            </p>
+          )}
+
+          {pathForThisNode && pathForThisNode.found && (
+            <div style={{ marginTop: '10px' }}>
+              <span className="info-label">
+                Öğrenme Yolu ({pathForThisNode.source} → {pathForThisNode.target})
+              </span>
+              <ul className="related-list" style={{ marginTop: '6px' }}>
+                {pathForThisNode.path.map((step, idx) => (
+                  <li key={idx} className="related-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>{idx + 1}. {step.name}</span>
+                    <span className={`badge ${HEALTH_BADGE_CLASS[step.health] || ''}`} style={{ fontSize: '11px' }}>
+                      {step.health === 'strong' ? 'sağlam'
+                        : step.health === 'warning' ? 'kritik eşik'
+                        : step.health === 'critical' ? 'zayıf durak'
+                        : 'bilinmiyor'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {isGoalNode && (
+        <div className="info-group">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+            <button
+              onClick={onClearGoal}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: 'rgba(255,255,255,0.06)', color: 'var(--sis)',
+                border: '1px solid var(--cizgi)', borderRadius: '6px',
+                padding: '6px 12px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+              }}
+            >
+              <X size={14} /> Kapat
+            </button>
+          </div>
+          <p style={{ lineHeight: '1.6', fontSize: '14px' }}>{goalResult.message}</p>
+          {goalResult.prerequisites.length > 0 && (
+            <ul className="related-list" style={{ marginTop: '10px' }}>
+              {goalResult.prerequisites.map((prereq, idx) => (
+                <li key={idx} className="related-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <span>{prereq.name}</span>
+                  <span
+                    className={`badge ${HEALTH_BADGE_CLASS[prereq.health] || ''}`}
+                    style={!HEALTH_BADGE_CLASS[prereq.health] ? { background: 'rgba(255,255,255,0.06)', color: 'var(--sis)', border: '1px solid var(--cizgi)' } : undefined}
+                  >
+                    {prereq.health === 'strong' ? 'sağlam'
+                      : prereq.health === 'warning' ? 'kritik eşik'
+                      : prereq.health === 'critical' ? 'zayıf durak'
+                      : 'hiç çalışılmamış'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {!isGoalNode && (
       <div className="info-group">
         <span className="info-label">Kategori</span>
         <span className="info-value">{node.topic || 'Genel'}</span>
       </div>
+      )}
 
-      {typeof node.fsrs_p === 'number' && (
+      {!isGoalNode && typeof node.fsrs_p === 'number' && (
         <div className="info-group">
           <span className="info-label">Hatırlama Durumu</span>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -48,6 +153,7 @@ const NodeDetailsPanel = ({ node, onClose }) => {
         </div>
       )}
 
+      {!isGoalNode && (
       <div className="info-group">
         <span className="info-label">Zorluk</span>
         <div>
@@ -56,6 +162,7 @@ const NodeDetailsPanel = ({ node, onClose }) => {
           </span>
         </div>
       </div>
+      )}
 
       {node.created_at && (
         <div className="info-group">

@@ -55,7 +55,7 @@ const REDUCED_MOTION =
   typeof window !== 'undefined' &&
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteringMode, selectedNode }) => {
+const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteringMode, selectedNode, highlightedPath }) => {
   const graphRef = useRef();
   const containerRef = useRef();
   const hasAutoFitted = useRef(false);
@@ -88,7 +88,7 @@ const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteri
   useEffect(() => {
     if (focusCluster && graphRef.current) {
       setTimeout(() => {
-        const nodes = graphRef.current.graphData().nodes;
+        const nodes = data.nodes;
         // Açılan kümedeki kavramları ve kümenin kendisini bul
         const clusterNodes = nodes.filter(n => (n.cluster_id || 'Genel') === focusCluster.id || n.id === focusCluster.id);
         
@@ -215,6 +215,13 @@ const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteri
           const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
           const targetId = typeof link.target === 'object' ? link.target.id : link.target;
 
+          if (highlightedPath) {
+            const pair = [sourceId, targetId].sort();
+            if (highlightedPath.edgeKeys.has(`${pair[0]}::${pair[1]}`)) {
+              return 'rgba(255, 217, 160, 0.95)'; // Öğrenme yolu: altın rota
+            }
+          }
+
           const isFocusedPath = selectedNode && (sourceId === selectedNode.id || targetId === selectedNode.id);
           const inContext = !isClusteringMode || !focusCluster || 
                             sourceCluster === focusCluster.id || 
@@ -249,6 +256,13 @@ const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteri
           return `rgba(${r}, ${g}, ${b}, ${baseA})`;
         }}
         linkWidth={(link) => {
+          const sId = typeof link.source === 'object' ? link.source.id : link.source;
+          const tId = typeof link.target === 'object' ? link.target.id : link.target;
+          if (highlightedPath) {
+            const pair = [sId, tId].sort();
+            if (highlightedPath.edgeKeys.has(`${pair[0]}::${pair[1]}`)) return 2.5;
+          }
+
           // Normal Mod: Arkadaşının orijinal kodu (Sabit 1.2)
           if (!isClusteringMode) return 1.2;
 
@@ -278,12 +292,18 @@ const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteri
           const ember = styleOf(node);
           const baseR = radiusOf(node);
 
+          // Öğrenme yolu gösteriliyorsa, sadece rotadaki düğümler tam görünür olur
+          // (küme odağı devre dışı kalır, rota önceliklidir)
+          const onPath = highlightedPath ? highlightedPath.nodeIds.has(node.id) : null;
+
           // CONTEXT + FOCUS (Bağlam ve Odak) Modu:
           let isVisible = true;
-          if (isClusteringMode && focusCluster) {
+          if (highlightedPath) {
+            isVisible = onPath;
+          } else if (isClusteringMode && focusCluster) {
             const inContext = (node.cluster_id || 'Genel') === focusCluster.id || node.id === focusCluster.id;
             const inFocus = selectedNode ? selectedNeighbors.has(node.id) : false;
-            
+
             isVisible = inContext || inFocus;
           }
           ctx.globalAlpha = isVisible ? 1.0 : 0.15;
@@ -321,6 +341,17 @@ const MindMap = ({ data, onNodeClick, zoomToFitTrigger, focusCluster, isClusteri
             ctx.arc(node.x - r * 0.25, node.y - r * 0.25, r * 0.35, 0, 2 * Math.PI, false);
             ctx.fillStyle = 'rgba(255, 245, 225, 0.9)';
             ctx.fill();
+          }
+
+          // Öğrenme yolu: zayıf durak (weak stop) kesikli uyarı halkası
+          if (onPath && highlightedPath.weakIds.has(node.id)) {
+            ctx.beginPath();
+            ctx.setLineDash([4, 3]);
+            ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI, false);
+            ctx.strokeStyle = 'rgba(255, 107, 107, 0.9)';
+            ctx.lineWidth = 1.6;
+            ctx.stroke();
+            ctx.setLineDash([]);
           }
 
           // Etiket
