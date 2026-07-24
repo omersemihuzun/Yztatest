@@ -1,10 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Video, MessageSquare, Trash2, Clock, ChevronDown, ChevronRight, Sparkles, Bot, Globe } from 'lucide-react';
+import { Video, MessageSquare, Trash2, Clock, ChevronDown, ChevronRight, Sparkles, Bot, Globe, Hash } from 'lucide-react';
 
-const Sidebar = ({ onSourceSelect, onGraphRefresh }) => {
+const Sidebar = ({ onSourceSelect, onGraphRefresh, clusters, onClusterSelect, isClusteringMode }) => {
   const [groupedSources, setGroupedSources] = useState({});
-  const [expandedGroups, setExpandedGroups] = useState({ 'Bugün': true, 'Dün': false, 'Bu Hafta': false, 'Daha Eski': false });
+  const [expandedGroups, setExpandedGroups] = useState({ 'Kümeler': false, 'Bugün': true, 'Dün': false, 'Bu Hafta': false, 'Daha Eski': false });
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (isClusteringMode) {
+      setExpandedGroups(prev => ({ ...prev, 'Kümeler': true }));
+    } else {
+      setExpandedGroups(prev => ({ ...prev, 'Kümeler': false }));
+    }
+  }, [isClusteringMode]);
 
   const fetchSources = async () => {
     try {
@@ -107,6 +115,38 @@ const Sidebar = ({ onSourceSelect, onGraphRefresh }) => {
         <h2>Öğrenme Kaynakları</h2>
       </div>
       <div className="source-list" style={{ overflowY: 'auto', paddingRight: '5px' }}>
+        {/* YENİ: Konu Kümeleri Listesi */}
+        {clusters && clusters.length > 0 && (
+          <div style={{ marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
+            <div className="source-group-header" onClick={() => toggleGroup('Kümeler')}>
+              {expandedGroups['Kümeler'] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <h3>Konu Kümeleri <span className="count">({clusters.length})</span></h3>
+            </div>
+            {expandedGroups['Kümeler'] && clusters.map(c => (
+              <div 
+                key={c.id} 
+                className="source-item"
+                onClick={() => onClusterSelect && onClusterSelect(c.id)}
+                style={{ cursor: 'pointer', opacity: 0.9 }}
+                title="Haritada göstermek için tıkla"
+              >
+                <div className="source-icon" style={{ 
+                    opacity: 0.8, 
+                    color: c.avg_p === null ? '#7E7568' : (c.avg_p >= 0.8 ? '#57D9A3' : (c.avg_p >= 0.5 ? '#FFB454' : '#FF6B6B')) 
+                  }}>
+                  <Hash size={14} />
+                </div>
+                <div className="source-content" style={{ flex: 1 }}>
+                  <p className="source-title">{c.id}</p>
+                  <span className="source-date" style={{ opacity: 0.5 }}>
+                    {c.count} kavram bağlı
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <p className="loading-text">Yükleniyor...</p>
         ) : (

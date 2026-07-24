@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.embeddings import get_local_embeddings
 from app.services.fsrs_engine import FSRSEngine
 
+
 settings = get_settings()
 
 class GraphService:
@@ -48,12 +49,18 @@ class GraphService:
 
         stats = {"processed": 0, "skipped": 0, "errors": 0}
 
+        # Mevcut topic ve kavramları (ilk girene göre) Neo4j'den çek
+        existing_topics = await self._get_existing_topics()
+        existing_concepts = await self._get_existing_concepts()
+
         for session in sessions:
             try:
                 result = await self.extractor.extract(
                     platform=session["platform"],
                     question=session["question"],
                     answer=session["answer"],
+                    existing_topics=existing_topics,
+                    existing_concepts=existing_concepts,
                 )
 
                 if result is None:
@@ -97,6 +104,33 @@ class GraphService:
                 limit=limit,
             )
             return [dict(r) for r in await result.data()]
+
+    async def _get_existing_topics(self) -> list[str]:
+        """Neo4j'deki mevcut benzersiz topic listesini döndürür. LLM'e gönderilir."""
+        try:
+            async with self.neo4j.session() as session:
+                result = await session.run(
+                    "MATCH (c:Concept) WHERE c.topic IS NOT NULL RETURN DISTINCT c.topic AS topic"
+                )
+                records = await result.data()
+                return list(set(r["topic"].strip() for r in records if r["topic"]))
+        except Exception:
+            return []
+
+    async def _get_existing_concepts(self) -> list[str]:
+        """Neo4j'deki mevcut kavram isimlerini zamana (ilk girene) göre sıralı döndürür."""
+        try:
+            async with self.neo4j.session() as session:
+                result = await session.run(
+                    "MATCH (c:Concept) RETURN c.name AS name ORDER BY c.created_at ASC"
+                )
+                records = await result.data()
+                # Zaten sıralı geldiği için set kullanmıyoruz ki sıra (zaman önceliği) bozulmasın,
+                # ama duplicate'leri ayıklamak için dict.fromkeys kullanabiliriz (sırada korur).
+                names = [r["name"].strip() for r in records if r["name"]]
+                return list(dict.fromkeys(names))
+        except Exception:
+            return []
 
     async def delete_session(self, session_id: str):
         """Bir ogrenme kaynagini (RawSession) ve eger bosta kaldiysa konseptlerini siler."""
@@ -366,6 +400,7 @@ class GraphService:
                 "id": r["name"],
                 "label": r["name"],
                 "topic": r["topic"],
+                "cluster_id": (r["topic"] or "Genel").strip(),  # Frontend gruplama/renklendirme için
                 "difficulty": r["difficulty"],
                 "created_at": r["created_at"].iso_format() if r["created_at"] else None,
                 "fsrs_p": fsrs_p,
@@ -474,6 +509,114 @@ class GraphService:
             """)
             record = await result.single()
             return record["updated_count"] if record else 0
+
+    async def get_topic_clusters(self) -> dict:
+        """
+        Kavramları topic bazında kümeler. Her kümenin:
+        - Üye listesi (kavram adı + FSRS metrikleri)
+        - Ortalama hatırlama oranı (avg_retrievability)
+        - Sağlık durumu (strong/warning/critical)
+        döndürülür. Harita büyüdüğünde okunabilirlik için frontend kümeleme yapabilir.
+        """
+        from datetime import datetime, timezone
+
+        async with self.neo4j.session() as session:
+            result = await session.run("""
+                MATCH (c:Concept)
+                WHERE c.topic IS NOT NULL
+                RETURN c.name        AS name,
+                       c.topic       AS topic,
+                       c.fsrs_p      AS fsrs_p,
+                       c.fsrs_s      AS stability,
+                       c.fsrs_d      AS fsrs_d,
+                       c.difficulty  AS difficulty,
+                       c.last_studied AS last_studied
+            """)
+            records = await result.data()
+
+        if not records:
+            return {"clusters": [], "total_clusters": 0}
+
+        # Dinamik p hesaplaması (get_graph_data ile tutarlı)
+        now = datetime.now(timezone.utc)
+        cluster_map = {}  # topic -> list[member]
+
+        for r in records:
+            p = r.get("fsrs_p")
+            stability = r.get("stability")
+            last_studied = r.get("last_studied")
+
+            if stability is not None and last_studied is not None:
+                try:
+                    studied_dt = last_studied.to_native()
+                    if studied_dt.tzinfo is None:
+                        studied_dt = studied_dt.replace(tzinfo=timezone.utc)
+                    elapsed_days = (now - studied_dt).total_seconds() / (24 * 3600)
+                    p = self.fsrs.calculate_current_retrievability(stability, elapsed_days)
+                except Exception:
+                    pass
+
+            topic = (r["topic"] or "Genel").strip()
+            member = {
+                "name": r["name"],
+                "fsrs_p": round(p, 4) if isinstance(p, (int, float)) else None,
+                "difficulty": r["difficulty"],
+            }
+
+            if topic not in cluster_map:
+                cluster_map[topic] = []
+            cluster_map[topic].append(member)
+
+        # Kümeleri oluştur
+        clusters = []
+        for topic, members in cluster_map.items():
+            p_values = [m["fsrs_p"] for m in members if m["fsrs_p"] is not None]
+            avg_p = round(sum(p_values) / len(p_values), 4) if p_values else None
+
+            health = "unknown"
+            if avg_p is not None:
+                if avg_p >= 0.7:
+                    health = "strong"
+                elif avg_p >= 0.4:
+                    health = "warning"
+                else:
+                    health = "critical"
+
+            clusters.append({
+                "label": topic,
+                "members": members,
+                "member_count": len(members),
+                "avg_retrievability": avg_p,
+                "health": health,
+            })
+
+        # Büyük kümeler önce
+        clusters.sort(key=lambda c: c["member_count"], reverse=True)
+
+        # Tek elemanlı kümeleri "Genel" altında topla (gerçek küme sayılmazlar)
+        general_members = []
+        final_clusters = []
+        for c in clusters:
+            if c["member_count"] <= 1:
+                general_members.extend(c["members"])
+            else:
+                final_clusters.append(c)
+
+        if general_members:
+            p_values = [m["fsrs_p"] for m in general_members if m["fsrs_p"] is not None]
+            avg_p = round(sum(p_values) / len(p_values), 4) if p_values else None
+            health = "unknown"
+            if avg_p is not None:
+                health = "strong" if avg_p >= 0.7 else ("warning" if avg_p >= 0.4 else "critical")
+            final_clusters.append({
+                "label": "Genel",
+                "members": general_members,
+                "member_count": len(general_members),
+                "avg_retrievability": avg_p,
+                "health": health,
+            })
+
+        return {"clusters": final_clusters, "total_clusters": len(final_clusters)}
 
 async def import_graph_data(self, graph_data: dict):
         """Dışarıdan gelen JSON verisini Neo4j'ye MERGE ile ekler."""

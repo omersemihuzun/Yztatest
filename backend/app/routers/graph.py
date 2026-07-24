@@ -103,3 +103,19 @@ async def import_graph_endpoint(
 ):
     await service.import_graph_data(payload.model_dump())
     return {"status": "success", "imported_nodes": len(payload.nodes)}
+
+
+@router.get(
+    "/clusters",
+    summary="Konu Kümeleri",
+    description=(
+        "Kavramları topic bazında gruplar. Her kümenin ortalama hatırlama oranı "
+        "ve sağlık durumu (strong/warning/critical) döndürülür. "
+        "Harita büyüdüğünde okunabilirlik için frontend kümeleme yapabilir."
+    ),
+)
+async def get_clusters(
+    service: GraphService = Depends(get_graph_service),
+):
+    """Topic bazlı kavram kümeleri ve her kümenin FSRS sağlık durumu."""
+    return await service.get_topic_clusters()
